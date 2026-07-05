@@ -410,6 +410,11 @@ function openBookForm(id, prefill){
       <label class="f"><b>出版年</b><input type="text" id="bYear" inputmode="numeric" value="${esc(b.publishedYear||'')}"></label>
     </div>
     <label class="f"><b>カバー画像URL(手動で差し替え可)</b><input type="url" id="bCover" value="${esc(b.coverUrl||'')}" oninput="$previewCover()"></label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:-4px 0 10px">
+      <button class="btn small ghost" onclick="archiveCover()">この画像をドライブに保存して使う</button>
+      <button class="btn small ghost" onclick="document.getElementById('coverFile').click()">写真・カメラから選ぶ</button>
+      <input type="file" id="coverFile" accept="image/*" style="display:none" onchange="uploadCover(this)">
+    </div>
     <div id="coverPrev" style="margin-bottom:10px">${b.coverUrl?`<img class="cover" src="${esc(b.coverUrl)}">`:''}</div>
     <label class="f"><b>タグ(カンマ区切りで複数可)</b><input type="text" id="bTags" value="${esc(b.tags||'')}" placeholder="小説, SF"></label>
     <label class="f"><b>一口メモ</b><textarea id="bMemo" rows="3">${esc(b.memo||'')}</textarea></label>
@@ -438,6 +443,54 @@ function $previewCover(){
 }
 window.$previewCover = $previewCover;
 
+/* 現在のカバーURLの画像をGoogleドライブへ保存版として複製 */
+async function archiveCover(){
+  const url = $('#bCover').value.trim();
+  if(!url){ toast('先にカバー画像URLを入力(または書誌取得)してください'); return; }
+  if(url.startsWith('https://drive.google.com/')){ toast('すでにドライブ保存版です'); return; }
+  loading(true);
+  try{
+    const r = await api('saveCover', { url });
+    $('#bCover').value = r.coverUrl; $previewCover();
+    toast('ドライブに保存しました。このまま本を保存してください');
+  }catch(e){ toast('保存失敗: ' + e.message); }
+  finally{ loading(false); }
+}
+window.archiveCover = archiveCover;
+
+/* 端末の写真/カメラから表紙をアップロード(縮小してからドライブへ) */
+async function uploadCover(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  input.value = '';
+  loading(true);
+  try{
+    const dataUrl = await shrinkImage_(file, 700, 0.82);
+    const r = await api('saveCover', { dataUrl });
+    $('#bCover').value = r.coverUrl; $previewCover();
+    toast('表紙画像を保存しました。このまま本を保存してください');
+  }catch(e){ toast('アップロード失敗: ' + e.message); }
+  finally{ loading(false); }
+}
+window.uploadCover = uploadCover;
+
+function shrinkImage_(file, maxSide, quality){
+  return new Promise((res, rej)=>{
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = ()=>{
+      const scale = Math.min(1, maxSide / Math.max(im.naturalWidth, im.naturalHeight));
+      const w = Math.round(im.naturalWidth * scale), h = Math.round(im.naturalHeight * scale);
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      c.getContext('2d').drawImage(im, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      res(c.toDataURL('image/jpeg', quality));
+    };
+    im.onerror = ()=>{ URL.revokeObjectURL(url); rej(new Error('画像を読み込めません')); };
+    im.src = url;
+  });
+}
+
 function $placeChanged(keep, rowVal, slotVal){
   const s = state.shelves.find(x=>x.id===$('#pShelf').value);
   const pRow = $('#pRow'), pSlot = $('#pSlot');
@@ -458,19 +511,83 @@ async function fetchByIsbn(){
   if(!isbn){ toast('ISBNを入力してください'); return; }
   toast('書誌情報を取得中…');
   const info = await googleBooks(isbn);
-  if(!info){ toast('Google Booksで見つかりませんでした。手動で入力してください'); return; }
+  if(!info){ toast('見つかりませんでした: ' + lastLookupDiag); showDiag_(); return; }
+  showDiag_();
   if(info.title) $('#bTitle').value = info.title;
   if(info.authors) $('#bAuthors').value = info.authors;
   if(info.publisher) $('#bPub').value = info.publisher;
   if(info.year) $('#bYear').value = info.year;
   if(info.cover && !$('#bCover').value){ $('#bCover').value = info.cover; $previewCover(); }
-  toast('取得しました');
+  toast('取得しました('+info.source+')');
 }
 window.fetchByIsbn = fetchByIsbn;
+function showDiag_(){
+  let d = document.getElementById('isbnDiag');
+  if(!d){
+    d = document.createElement('div');
+    d.id = 'isbnDiag'; d.className = 'sub'; d.style.marginTop = '-8px'; d.style.marginBottom = '10px';
+    const el = document.getElementById('bIsbn');
+    if(el) el.closest('label').after(d); else return;
+  }
+  d.textContent = '照会結果 — ' + lastLookupDiag;
+}
 
+/* 書誌情報の取得: openBD(日本の書籍に強い)とGoogle Booksの両方に問い合わせて統合 */
+let lastLookupDiag = '';
 async function googleBooks(isbn){
+  const [obR, gbR] = await Promise.all([wrap_(openBd_, isbn), wrap_(googleBooks_, isbn)]);
+  lastLookupDiag = 'openBD: ' + obR.status + ' / Google Books: ' + gbR.status;
+  const ob = obR.data, gb = gbR.data;
+  if(!ob && !gb) return null;
+  const pick = k => (ob?.[k]) || (gb?.[k]) || '';
+  const info = { title:pick('title'), authors:pick('authors'), publisher:pick('publisher'),
+           year:pick('year'), cover:pick('cover'),
+           source:[ob&&'openBD', gb&&'Google Books'].filter(Boolean).join(' + ') };
+  // カバーが無ければ国立国会図書館の書影を試す
+  if(!info.cover){
+    const ndl = 'https://ndlsearch.ndl.go.jp/thumbnail/' + isbn + '.jpg';
+    if(await imgExists_(ndl)){ info.cover = ndl; info.source += ' + NDL書影'; }
+  }
+  return info;
+}
+function imgExists_(url){
+  return new Promise(res=>{
+    const im = new Image();
+    const done = ok => res(ok);
+    im.onload = ()=>done(im.naturalWidth > 1);
+    im.onerror = ()=>done(false);
+    setTimeout(()=>done(false), 4000);
+    im.src = url;
+  });
+}
+async function wrap_(fn, isbn){
   try{
-    const r = await fetch('https://www.googleapis.com/books/v1/volumes?q=isbn:'+encodeURIComponent(isbn));
+    const data = await fn(isbn);
+    return data ? { data, status:'取得成功' } : { data:null, status:'該当なし' };
+  }catch(e){
+    return { data:null, status:'通信エラー(' + (e && e.message ? e.message : e) + ')' };
+  }
+}
+async function openBd_(isbn){
+    const r = await fetch('https://api.openbd.jp/v1/get?isbn='+encodeURIComponent(isbn));
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j = await r.json();
+    const d = j?.[0];
+    if(!d) return null;
+    const s = d.summary || {};
+    // 出版年: summary.pubdate は "YYYYMMDD" or "YYYY-MM"
+    const year = String(s.pubdate||'').replace(/\D/g,'').slice(0,4);
+    return {
+      title: [s.title, s.volume].filter(Boolean).join(' '),
+      authors: (s.author||'').replace(/／(著|作|訳|編|監修|絵|画|文)/g,'').replace(/\s+/g,' ').trim(),
+      publisher: s.publisher || '',
+      year,
+      cover: (s.cover||'').replace(/^http:/,'https:')
+    };
+}
+async function googleBooks_(isbn){
+    const r = await fetch('https://www.googleapis.com/books/v1/volumes?q=isbn:'+encodeURIComponent(isbn)+'&country=JP');
+    if(!r.ok) throw new Error('HTTP '+r.status);
     const j = await r.json();
     const v = j.items?.[0]?.volumeInfo;
     if(!v) return null;
@@ -481,7 +598,6 @@ async function googleBooks(isbn){
       year: (v.publishedDate||'').slice(0,4),
       cover: (v.imageLinks?.thumbnail || v.imageLinks?.smallThumbnail || '').replace(/^http:/,'https:')
     };
-  }catch(e){ return null; }
 }
 
 async function saveBookForm(id){
@@ -576,7 +692,7 @@ async function onScan(text){
         isbn, title: info?.title||'', authors: info?.authors||'', publisher: info?.publisher||'',
         publishedYear: info?.year||'', coverUrl: info?.cover||''
       }});
-      if(!info) toast('Google Booksで見つかりませんでした。手動入力してください');
+      if(!info) toast('見つかりませんでした: ' + lastLookupDiag);
     } else if(isbn.startsWith('192')){
       $('#scanMsg').textContent = '価格用の2段目バーコードです。上段(978から始まる方)を読み取ってください。';
     }
@@ -616,6 +732,7 @@ function viewSettings(){
         <button class="btn ghost" onclick="loadAll()">データを再読み込み</button>
       </div>
     </div>
+    <p class="sub">アプリのバージョン: <b>v1.2</b>(書誌取得: openBD + Google Books + NDL書影 / 表紙のドライブ保存・写真アップロード対応)。設定画面にこの表示がない場合は古いファイルがキャッシュされています。</p>
     <p class="sub">データはあなたのGoogleドライブ内のスプレッドシート「本棚管理アプリ データ」に保存されます。iPhone・iPad・PCそれぞれでこのページを開き、同じURLとトークンを設定すれば同じデータを利用できます。</p>`;
 }
 async function saveCfg(){
