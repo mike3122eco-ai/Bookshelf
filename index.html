@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>本棚管理</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+:root{
+  --paper:#F4F3EE; --card:#FFFFFF; --ink:#2B2B33; --sub:#6E6E78;
+  --indigo:#35558A; --indigo-deep:#274069; --wood:#8A6A4F; --wood-light:#C9B49E;
+  --line:#E0DED6; --danger:#B4443C; --ok:#3E7A55;
+  --radius:10px; --nav-h:60px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  background:var(--paper); color:var(--ink); font-size:15px; line-height:1.6;
+}
+.display{font-family:"Shippori Mincho",serif;font-weight:700}
+#app{display:flex;min-height:100%}
+main{flex:1;max-width:900px;margin:0 auto;padding:16px 16px calc(var(--nav-h) + 28px);width:100%}
+h1.appTitle{font-size:20px;letter-spacing:.12em;margin:4px 0 14px}
+h2{font-size:17px;margin:18px 0 10px}
+.sub{color:var(--sub);font-size:13px}
+
+/* ナビ */
+nav#tabbar{
+  position:fixed;bottom:0;left:0;right:0;height:calc(var(--nav-h) + env(safe-area-inset-bottom));
+  padding-bottom:env(safe-area-inset-bottom);
+  background:var(--card);border-top:1px solid var(--line);
+  display:flex;z-index:50;
+}
+nav#tabbar button{
+  flex:1;background:none;border:none;font-size:11px;color:var(--sub);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;
+}
+nav#tabbar button .ic{font-size:20px;line-height:1}
+nav#tabbar button.active{color:var(--indigo);font-weight:600}
+@media(min-width:900px){
+  #app{padding-left:200px}
+  nav#tabbar{left:0;top:0;bottom:0;right:auto;width:200px;height:auto;flex-direction:column;
+    justify-content:flex-start;border-top:none;border-right:1px solid var(--line);padding:24px 0}
+  nav#tabbar button{flex:0 0 auto;flex-direction:row;gap:10px;font-size:14px;padding:13px 24px;justify-content:flex-start}
+  main{padding-bottom:40px}
+}
+
+/* 部品 */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-bottom:12px}
+.btn{display:inline-flex;align-items:center;gap:6px;border:none;border-radius:8px;background:var(--indigo);
+  color:#fff;padding:9px 16px;font-size:14px;cursor:pointer;font-weight:600}
+.btn:active{background:var(--indigo-deep)}
+.btn.ghost{background:transparent;color:var(--indigo);border:1px solid var(--indigo)}
+.btn.danger{background:var(--danger)}
+.btn.small{padding:5px 10px;font-size:12px}
+.btn:disabled{opacity:.5}
+input[type=text],input[type=number],input[type=url],textarea,select{
+  width:100%;border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:15px;
+  background:#fff;color:var(--ink);font-family:inherit}
+input:focus,textarea:focus,select:focus{outline:2px solid var(--indigo);outline-offset:0}
+label.f{display:block;margin-bottom:12px;font-size:13px;color:var(--sub)}
+label.f b{display:block;color:var(--ink);margin-bottom:4px;font-weight:600}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.tag{display:inline-block;background:#EAEEF5;color:var(--indigo);border-radius:999px;padding:1px 10px;font-size:12px;margin:2px 3px 2px 0}
+.loc{display:inline-block;background:#F2EDE4;color:#7A5C3E;border-radius:6px;padding:1px 8px;font-size:12px}
+
+/* 本カード */
+.bookItem{display:flex;gap:12px;align-items:flex-start;cursor:pointer}
+.cover{width:52px;height:74px;border-radius:4px;flex:none;object-fit:cover;background:#ddd;
+  box-shadow:1px 2px 4px rgba(0,0,0,.18)}
+.cover.ph{display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;
+  text-align:center;padding:4px;overflow:hidden;font-weight:600;line-height:1.3}
+
+/* 棚ビュー(シグネチャ) */
+.shelfCase{background:linear-gradient(#FBF9F5,#F3EFE7);border:1px solid var(--wood-light);
+  border-radius:var(--radius);padding:12px;margin-bottom:16px;overflow-x:auto}
+.rowLabel{font-size:12px;color:var(--sub);margin:8px 0 4px;display:flex;justify-content:space-between;align-items:baseline}
+.layerTag{font-size:10px;color:#fff;background:var(--wood);border-radius:4px;padding:0 6px;margin-right:6px}
+.layerTag.front{background:var(--indigo)}
+.slotRow{display:flex;gap:5px;min-width:min-content;padding:2px 0}
+.slot{width:56px;min-height:76px;flex:none;border:1px dashed var(--wood-light);border-radius:5px;
+  background:rgba(255,255,255,.6);display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+  cursor:pointer;position:relative;padding:2px}
+.slot .num{position:absolute;top:2px;left:4px;font-size:9px;color:var(--sub)}
+.slot .spines{display:flex;gap:2px;align-items:flex-end}
+.spine{width:11px;height:52px;border-radius:2px;box-shadow:1px 1px 2px rgba(0,0,0,.25)}
+.slot img.mini{width:34px;height:50px;object-fit:cover;border-radius:2px;box-shadow:1px 1px 3px rgba(0,0,0,.3)}
+.slot .count{font-size:10px;color:var(--sub)}
+.woodRail{height:8px;border-radius:3px;margin:8px 0 14px;
+  background:linear-gradient(#A5825F,var(--wood) 60%,#6E5440)}
+
+/* モーダル */
+.modalBg{position:fixed;inset:0;background:rgba(30,30,40,.45);z-index:100;display:flex;
+  align-items:flex-end;justify-content:center}
+@media(min-width:600px){.modalBg{align-items:center}}
+.modal{background:var(--card);border-radius:14px 14px 0 0;max-height:88vh;overflow-y:auto;
+  width:100%;max-width:560px;padding:18px 18px calc(18px + env(safe-area-inset-bottom))}
+@media(min-width:600px){.modal{border-radius:14px}}
+.modalHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.modalHead .x{background:none;border:none;font-size:22px;color:var(--sub);cursor:pointer;padding:4px 8px}
+
+/* その他 */
+#toast{position:fixed;bottom:calc(var(--nav-h) + 20px);left:50%;transform:translateX(-50%);
+  background:var(--ink);color:#fff;padding:9px 18px;border-radius:999px;font-size:13px;z-index:300;
+  opacity:0;transition:opacity .25s;pointer-events:none;max-width:90%;text-align:center}
+#toast.show{opacity:1}
+#loading{position:fixed;inset:0;background:rgba(244,243,238,.6);z-index:200;display:none;
+  align-items:center;justify-content:center}
+#loading .sp{width:34px;height:34px;border:4px solid var(--line);border-top-color:var(--indigo);
+  border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#reader{width:100%;max-width:420px;margin:0 auto;border-radius:var(--radius);overflow:hidden}
+.empty{text-align:center;color:var(--sub);padding:30px 10px;font-size:14px}
+.histItem{display:flex;justify-content:space-between;align-items:center;gap:10px}
+hr.sep{border:none;border-top:1px solid var(--line);margin:12px 0}
+
+/* QR印刷 */
+#printArea{display:none}
+@media print{
+  body *{visibility:hidden}
+  #printArea{display:block;visibility:visible;position:absolute;top:0;left:0}
+  #printArea *{visibility:visible}
+  #printArea .qrLabel{width:50mm;padding:4mm;text-align:center;border:1px dashed #999}
+  #printArea .qrLabel .t{font-size:10px;word-break:break-all}
+}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app">
+  <nav id="tabbar">
+    <button data-view="shelves"><span class="ic">📚</span>棚</button>
+    <button data-view="search"><span class="ic">🔍</span>検索</button>
+    <button data-view="scan"><span class="ic">📷</span>追加</button>
+    <button data-view="history"><span class="ic">🕘</span>履歴</button>
+    <button data-view="settings"><span class="ic">⚙️</span>設定</button>
+  </nav>
+  <main id="main"></main>
+</div>
+<div id="toast"></div>
+<div id="loading"><div class="sp"></div></div>
+<div id="modalRoot"></div>
+<div id="printArea"></div>
+
+<script>
+'use strict';
+/* ================= 状態・ユーティリティ ================= */
+const state = { shelves: [], books: [], history: [], view: 'shelves', shelfOpen: null, query: '' };
+const cfg = {
+  get url(){ return localStorage.getItem('gasUrl') || ''; },
+  set url(v){ localStorage.setItem('gasUrl', v); },
+  get token(){ return localStorage.getItem('gasToken') || ''; },
+  set token(v){ localStorage.setItem('gasToken', v); },
+};
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = p => p + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),2600); }
+function loading(on){ $('#loading').style.display = on ? 'flex' : 'none'; }
+function spineColor(title){ let h=0; for(const c of String(title)) h=(h*31+c.codePointAt(0))>>>0; return `hsl(${h%360},32%,${45+(h>>8)%18}%)`; }
+function shelfRows(shelf){ try{ const a=JSON.parse(shelf.rowsJson||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+function locText(b){
+  if(!b.shelfId) return '';
+  const s = state.shelves.find(x=>x.id===b.shelfId);
+  if(!s) return '';
+  return `${s.name}・${b.rowIndex}段目・${b.layer==='back'?'後列':'前列'}・#${b.slot}`;
+}
+function booksInSlot(shelfId,row,layer,slot){
+  return state.books.filter(b=>b.shelfId===shelfId && String(b.rowIndex)===String(row) && b.layer===layer && String(b.slot)===String(slot));
+}
+
+/* ================= API ================= */
+async function api(action, data){
+  if(!cfg.url || !cfg.token) throw new Error('未設定');
+  const res = await fetch(cfg.url, {
+    method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify({ token: cfg.token, action, data })
+  });
+  const json = await res.json();
+  if(!json.ok) throw new Error(json.message || json.error || '不明なエラー');
+  return json;
+}
+async function loadAll(silent){
+  if(!cfg.url || !cfg.token){ nav('settings'); return; }
+  if(!silent) loading(true);
+  try{
+    const r = await api('getAll');
+    state.shelves = r.bookshelves || [];
+    state.books = r.books || [];
+    state.history = r.history || [];
+    render();
+  }catch(e){ toast('読み込み失敗: ' + e.message); }
+  finally{ loading(false); }
+}
+async function mutate(action, data, okMsg){
+  loading(true);
+  try{ await api(action, data); toast(okMsg); await loadAll(true); return true; }
+  catch(e){ toast('エラー: ' + e.message); return false; }
+  finally{ loading(false); }
+}
+
+/* ================= ナビゲーション ================= */
+function nav(view){
+  stopScanner();
+  state.view = view;
+  document.querySelectorAll('#tabbar button').forEach(b=>b.classList.toggle('active', b.dataset.view===view));
+  render();
+}
+document.querySelectorAll('#tabbar button').forEach(b=>b.addEventListener('click',()=>nav(b.dataset.view)));
+
+function render(){
+  const m = $('#main');
+  const v = state.view;
+  if(v==='shelves')  m.innerHTML = state.shelfOpen ? viewShelfDetail() : viewShelves();
+  if(v==='search')   m.innerHTML = viewSearch();
+  if(v==='scan')   { m.innerHTML = viewScan(); startScanner(); }
+  if(v==='history')  m.innerHTML = viewHistory();
+  if(v==='settings') m.innerHTML = viewSettings();
+  if(v==='search'){ const q=$('#q'); if(q){ q.value=state.query; q.focus(); } }
+}
+
+/* ================= 棚ビュー ================= */
+function viewShelves(){
+  let cards = state.shelves.map(s=>{
+    const rows = shelfRows(s);
+    const count = state.books.filter(b=>b.shelfId===s.id).length;
+    return `<div class="card bookItem" onclick="openShelf('${s.id}')">
+      <div style="flex:1">
+        <div class="display" style="font-size:17px">${esc(s.name)}</div>
+        <div class="sub">${rows.length}段 / 各段スロット: ${rows.join(', ')} / 収納 ${count}冊</div>
+      </div><div style="align-self:center;color:var(--sub)">›</div></div>`;
+  }).join('');
+  if(!state.shelves.length) cards = `<div class="empty">まだ本棚がありません。<br>「新しい本棚」から登録しましょう。</div>`;
+  return `<h1 class="appTitle display">本棚管理</h1>
+    <button class="btn" onclick="openShelfForm()">＋ 新しい本棚</button>
+    <h2>本棚一覧</h2>${cards}`;
+}
+function openShelf(id){ state.shelfOpen=id; render(); }
+window.openShelf = openShelf;
+
+function viewShelfDetail(){
+  const s = state.shelves.find(x=>x.id===state.shelfOpen);
+  if(!s){ state.shelfOpen=null; return viewShelves(); }
+  const rows = shelfRows(s);
+  let html = `<button class="btn ghost small" onclick="state.shelfOpen=null;render()">‹ 本棚一覧</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0 4px">
+      <h1 class="appTitle display" style="margin:0">${esc(s.name)}</h1>
+      <button class="btn ghost small" onclick="openShelfForm('${s.id}')">編集</button>
+    </div>
+    <p class="sub">スロットをタップすると中身の確認・本の登録ができます。各段は上が後列、下が前列です。</p>`;
+  rows.forEach((cnt,i)=>{
+    const row = i+1;
+    html += `<div class="shelfCase"><div class="rowLabel"><b>${row}段目</b><span>${cnt}スロット × 前後2列</span></div>`;
+    for(const layer of ['back','front']){
+      html += `<div class="rowLabel"><span><span class="layerTag ${layer==='front'?'front':''}">${layer==='back'?'後列':'前列'}</span></span></div><div class="slotRow">`;
+      for(let sl=1; sl<=cnt; sl++){
+        const bs = booksInSlot(s.id,row,layer,sl);
+        let inner='';
+        if(bs.length===1 && bs[0].coverUrl) inner = `<img class="mini" src="${esc(bs[0].coverUrl)}" alt="">`;
+        else if(bs.length) inner = `<div class="spines">${bs.slice(0,4).map(b=>`<div class="spine" style="background:${spineColor(b.title)}"></div>`).join('')}</div><div class="count">${bs.length}冊</div>`;
+        html += `<div class="slot" onclick="openSlot('${s.id}',${row},'${layer}',${sl})"><span class="num">${sl}</span>${inner}</div>`;
+      }
+      html += `</div>`;
+    }
+    html += `<div class="woodRail"></div></div>`;
+  });
+  return html;
+}
+
+function openSlot(shelfId,row,layer,slot){
+  const s = state.shelves.find(x=>x.id===shelfId);
+  const bs = booksInSlot(shelfId,row,layer,slot);
+  const list = bs.length ? bs.map(b=>bookCard(b)).join('') : `<div class="empty">このスロットは空です</div>`;
+  modal(`${esc(s.name)} ${row}段目 ${layer==='back'?'後列':'前列'} #${slot}`, `
+    ${list}
+    <button class="btn" onclick="closeModal();openBookForm(null,{shelfId:'${shelfId}',rowIndex:${row},layer:'${layer}',slot:${slot}})">＋ この場所に本を登録</button>`);
+}
+window.openSlot = openSlot;
+
+/* ---- 本棚フォーム ---- */
+function openShelfForm(id){
+  const s = id ? state.shelves.find(x=>x.id===id) : null;
+  const rows = s ? shelfRows(s) : [6,6,6];
+  modal(s ? '本棚を編集' : '新しい本棚', `
+    <label class="f"><b>本棚の名前</b><input type="text" id="shName" value="${esc(s?s.name:'')}" placeholder="本棚A"></label>
+    <label class="f"><b>段数</b><input type="number" id="shRows" min="1" max="20" value="${rows.length}" onchange="renderRowInputs()"></label>
+    <div id="rowInputs"></div>
+    <p class="sub" style="margin-bottom:10px">※前列・後列のスロット数は同じです(仕様どおり)。</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" onclick="saveShelfForm('${id||''}')">保存</button>
+      ${s?`<button class="btn danger" onclick="delShelf('${s.id}')">削除</button>`:''}
+    </div>`);
+  window._rowVals = rows;
+  renderRowInputs();
+}
+window.openShelfForm = openShelfForm;
+function renderRowInputs(){
+  const n = Math.max(1, Math.min(20, parseInt($('#shRows').value)||1));
+  const vals = window._rowVals || [];
+  $('#rowInputs').innerHTML = Array.from({length:n},(_,i)=>
+    `<label class="f"><b>${i+1}段目のスロット数(前列・後列 各)</b>
+     <input type="number" class="rowCnt" min="1" max="50" value="${vals[i]||6}"></label>`).join('');
+}
+window.renderRowInputs = renderRowInputs;
+async function saveShelfForm(id){
+  const name = $('#shName').value.trim();
+  if(!name){ toast('名前を入力してください'); return; }
+  const counts = [...document.querySelectorAll('.rowCnt')].map(i=>Math.max(1,parseInt(i.value)||1));
+  closeModal();
+  await mutate('saveShelf', { id: id || uid('sh'), name, rowsJson: JSON.stringify(counts) }, '本棚を保存しました');
+}
+window.saveShelfForm = saveShelfForm;
+async function delShelf(id){
+  if(!confirm('この本棚を削除しますか?(中の本のデータは残り、配置だけ解除されます。履歴から復元できます)')) return;
+  closeModal(); state.shelfOpen=null;
+  await mutate('deleteShelf', { id }, '本棚を削除しました');
+}
+window.delShelf = delShelf;
+
+/* ================= 検索・本一覧 ================= */
+function viewSearch(){
+  const q = state.query.trim().toLowerCase();
+  let list = state.books;
+  if(q) list = list.filter(b=>
+    [b.title,b.authors,b.tags,b.memo,b.isbn].some(f=>String(f||'').toLowerCase().includes(q)));
+  list = [...list].sort((a,b)=>String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  const items = list.length ? list.map(b=>bookCard(b)).join('') : `<div class="empty">該当する本がありません</div>`;
+  return `<h1 class="appTitle display">検索・蔵書一覧</h1>
+    <input type="text" id="q" placeholder="題名・著者・タグ・メモ・ISBNで検索"
+      oninput="state.query=this.value;refreshSearchList()">
+    <p class="sub" style="margin:6px 0">全 ${state.books.length} 冊 / 表示 ${list.length} 冊</p>
+    <button class="btn ghost small" onclick="openBookForm()">＋ 手動で本を追加</button>
+    <div id="bookList" style="margin-top:12px">${items}</div>`;
+}
+function refreshSearchList(){
+  const q = state.query.trim().toLowerCase();
+  let list = state.books;
+  if(q) list = list.filter(b=>[b.title,b.authors,b.tags,b.memo,b.isbn].some(f=>String(f||'').toLowerCase().includes(q)));
+  list = [...list].sort((a,b)=>String(b.updatedAt).localeCompare(String(a.updatedAt)));
+  $('#bookList').innerHTML = list.length ? list.map(b=>bookCard(b)).join('') : `<div class="empty">該当する本がありません</div>`;
+}
+window.refreshSearchList = refreshSearchList;
+
+function bookCard(b){
+  const cover = b.coverUrl
+    ? `<img class="cover" src="${esc(b.coverUrl)}" alt="">`
+    : `<div class="cover ph" style="background:${spineColor(b.title)}">${esc(String(b.title).slice(0,12))}</div>`;
+  const tags = String(b.tags||'').split(',').filter(t=>t.trim()).map(t=>`<span class="tag">${esc(t.trim())}</span>`).join('');
+  const loc = locText(b);
+  return `<div class="card bookItem" onclick="openBookDetail('${b.id}')">${cover}
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:600">${esc(b.title)}</div>
+      <div class="sub">${esc(b.authors||'')} ${b.publishedYear?`(${esc(b.publishedYear)})`:''}</div>
+      <div>${tags}</div>
+      ${loc?`<span class="loc">📍 ${esc(loc)}</span>`:`<span class="sub">未配置</span>`}
+    </div></div>`;
+}
+
+function openBookDetail(id){
+  const b = state.books.find(x=>x.id===id);
+  if(!b) return;
+  const loc = locText(b);
+  modal(b.title, `
+    <div class="bookItem" style="cursor:default">
+      ${b.coverUrl?`<img class="cover" style="width:80px;height:114px" src="${esc(b.coverUrl)}" alt="">`
+        :`<div class="cover ph" style="width:80px;height:114px;background:${spineColor(b.title)}">${esc(String(b.title).slice(0,16))}</div>`}
+      <div style="flex:1">
+        <div class="sub">著者: ${esc(b.authors||'—')}</div>
+        <div class="sub">出版社: ${esc(b.publisher||'—')} / 出版年: ${esc(b.publishedYear||'—')}</div>
+        <div class="sub">ISBN: ${esc(b.isbn||'—')}</div>
+        <div>${String(b.tags||'').split(',').filter(t=>t.trim()).map(t=>`<span class="tag">${esc(t.trim())}</span>`).join('')}</div>
+        <div style="margin-top:4px">${loc?`<span class="loc">📍 ${esc(loc)}</span>`:'<span class="sub">未配置</span>'}</div>
+      </div>
+    </div>
+    ${b.memo?`<hr class="sep"><div style="white-space:pre-wrap">${esc(b.memo)}</div>`:''}
+    <hr class="sep">
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" onclick="closeModal();openBookForm('${b.id}')">編集</button>
+      <button class="btn ghost" onclick="showQr('${b.id}')">QRコード</button>
+      <button class="btn danger" onclick="delBook('${b.id}')">削除</button>
+    </div>`);
+}
+window.openBookDetail = openBookDetail;
+
+async function delBook(id){
+  if(!confirm('この本を削除しますか?(履歴から復元できます)')) return;
+  closeModal();
+  await mutate('deleteBook', { id }, '本を削除しました');
+}
+window.delBook = delBook;
+
+/* ---- 本フォーム ---- */
+function openBookForm(id, prefill){
+  const b = id ? state.books.find(x=>x.id===id) : (prefill?.book || {});
+  const place = prefill || {};
+  const shelfId = b.shelfId ?? place.shelfId ?? '';
+  modal(id ? '本を編集' : '本を登録', `
+    <label class="f"><b>ISBN</b>
+      <div style="display:flex;gap:6px"><input type="text" id="bIsbn" inputmode="numeric" value="${esc(b.isbn||'')}">
+      <button class="btn small" style="flex:none" onclick="fetchByIsbn()">書誌取得</button></div></label>
+    <label class="f"><b>題名 *</b><input type="text" id="bTitle" value="${esc(b.title||'')}"></label>
+    <label class="f"><b>著者</b><input type="text" id="bAuthors" value="${esc(b.authors||'')}"></label>
+    <div class="row2">
+      <label class="f"><b>出版社</b><input type="text" id="bPub" value="${esc(b.publisher||'')}"></label>
+      <label class="f"><b>出版年</b><input type="text" id="bYear" inputmode="numeric" value="${esc(b.publishedYear||'')}"></label>
+    </div>
+    <label class="f"><b>カバー画像URL(手動で差し替え可)</b><input type="url" id="bCover" value="${esc(b.coverUrl||'')}" oninput="$previewCover()"></label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:-4px 0 10px">
+      <button class="btn small ghost" onclick="archiveCover()">この画像をドライブに保存して使う</button>
+      <button class="btn small ghost" onclick="document.getElementById('coverFile').click()">写真・カメラから選ぶ</button>
+      <input type="file" id="coverFile" accept="image/*" style="display:none" onchange="uploadCover(this)">
+    </div>
+    <div id="coverPrev" style="margin-bottom:10px">${b.coverUrl?`<img class="cover" src="${esc(b.coverUrl)}">`:''}</div>
+    <label class="f"><b>タグ(カンマ区切りで複数可)</b><input type="text" id="bTags" value="${esc(b.tags||'')}" placeholder="小説, SF"></label>
+    <label class="f"><b>一口メモ</b><textarea id="bMemo" rows="3">${esc(b.memo||'')}</textarea></label>
+    <hr class="sep"><b style="font-size:14px">置き場所</b>
+    <div class="row2" style="margin-top:8px">
+      <label class="f"><b>本棚</b><select id="pShelf" onchange="$placeChanged()">
+        <option value="">未配置</option>
+        ${state.shelves.map(s=>`<option value="${s.id}" ${s.id===shelfId?'selected':''}>${esc(s.name)}</option>`).join('')}
+      </select></label>
+      <label class="f"><b>段</b><select id="pRow" onchange="$placeChanged(true)"></select></label>
+    </div>
+    <div class="row2">
+      <label class="f"><b>前列 / 後列</b><select id="pLayer" onchange="$placeChanged(true)">
+        <option value="front">前列</option><option value="back">後列</option></select></label>
+      <label class="f"><b>スロット番号</b><select id="pSlot"></select></label>
+    </div>
+    <button class="btn" onclick="saveBookForm('${id||''}')">保存</button>`);
+  $('#pLayer').value = b.layer ?? place.layer ?? 'front';
+  $placeChanged(false, b.rowIndex ?? place.rowIndex, b.slot ?? place.slot);
+}
+window.openBookForm = openBookForm;
+
+function $previewCover(){
+  const u = $('#bCover').value.trim();
+  $('#coverPrev').innerHTML = u ? `<img class="cover" src="${esc(u)}">` : '';
+}
+window.$previewCover = $previewCover;
+
+/* 現在のカバーURLの画像をGoogleドライブへ保存版として複製 */
+async function archiveCover(){
+  const url = $('#bCover').value.trim();
+  if(!url){ toast('先にカバー画像URLを入力(または書誌取得)してください'); return; }
+  if(url.startsWith('https://drive.google.com/')){ toast('すでにドライブ保存版です'); return; }
+  loading(true);
+  try{
+    const r = await api('saveCover', { url });
+    $('#bCover').value = r.coverUrl; $previewCover();
+    toast('ドライブに保存しました。このまま本を保存してください');
+  }catch(e){ toast('保存失敗: ' + e.message); }
+  finally{ loading(false); }
+}
+window.archiveCover = archiveCover;
+
+/* 端末の写真/カメラから表紙をアップロード(縮小してからドライブへ) */
+async function uploadCover(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  input.value = '';
+  loading(true);
+  try{
+    const dataUrl = await shrinkImage_(file, 700, 0.82);
+    const r = await api('saveCover', { dataUrl });
+    $('#bCover').value = r.coverUrl; $previewCover();
+    toast('表紙画像を保存しました。このまま本を保存してください');
+  }catch(e){ toast('アップロード失敗: ' + e.message); }
+  finally{ loading(false); }
+}
+window.uploadCover = uploadCover;
+
+function shrinkImage_(file, maxSide, quality){
+  return new Promise((res, rej)=>{
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = ()=>{
+      const scale = Math.min(1, maxSide / Math.max(im.naturalWidth, im.naturalHeight));
+      const w = Math.round(im.naturalWidth * scale), h = Math.round(im.naturalHeight * scale);
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      c.getContext('2d').drawImage(im, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      res(c.toDataURL('image/jpeg', quality));
+    };
+    im.onerror = ()=>{ URL.revokeObjectURL(url); rej(new Error('画像を読み込めません')); };
+    im.src = url;
+  });
+}
+
+function $placeChanged(keep, rowVal, slotVal){
+  const s = state.shelves.find(x=>x.id===$('#pShelf').value);
+  const pRow = $('#pRow'), pSlot = $('#pSlot');
+  if(!s){ pRow.innerHTML=''; pSlot.innerHTML=''; return; }
+  const rows = shelfRows(s);
+  const curRow = keep ? pRow.value : (rowVal || 1);
+  pRow.innerHTML = rows.map((_,i)=>`<option value="${i+1}">${i+1}段目</option>`).join('');
+  pRow.value = Math.min(rows.length, parseInt(curRow)||1);
+  const cnt = rows[(parseInt(pRow.value)||1)-1] || 1;
+  const curSlot = keep ? pSlot.value : (slotVal || 1);
+  pSlot.innerHTML = Array.from({length:cnt},(_,i)=>`<option value="${i+1}">#${i+1}</option>`).join('');
+  pSlot.value = Math.min(cnt, parseInt(curSlot)||1);
+}
+window.$placeChanged = $placeChanged;
+
+async function fetchByIsbn(){
+  const isbn = $('#bIsbn').value.replace(/[^0-9Xx]/g,'');
+  if(!isbn){ toast('ISBNを入力してください'); return; }
+  toast('書誌情報を取得中…');
+  const info = await googleBooks(isbn);
+  if(!info){ toast('見つかりませんでした: ' + lastLookupDiag); showDiag_(); return; }
+  showDiag_();
+  if(info.title) $('#bTitle').value = info.title;
+  if(info.authors) $('#bAuthors').value = info.authors;
+  if(info.publisher) $('#bPub').value = info.publisher;
+  if(info.year) $('#bYear').value = info.year;
+  if(info.cover && !$('#bCover').value){ $('#bCover').value = info.cover; $previewCover(); }
+  toast('取得しました('+info.source+')');
+}
+window.fetchByIsbn = fetchByIsbn;
+function showDiag_(){
+  let d = document.getElementById('isbnDiag');
+  if(!d){
+    d = document.createElement('div');
+    d.id = 'isbnDiag'; d.className = 'sub'; d.style.marginTop = '-8px'; d.style.marginBottom = '10px';
+    const el = document.getElementById('bIsbn');
+    if(el) el.closest('label').after(d); else return;
+  }
+  d.textContent = '照会結果 — ' + lastLookupDiag;
+}
+
+/* 書誌情報の取得: openBD(日本の書籍に強い)とGoogle Booksの両方に問い合わせて統合 */
+let lastLookupDiag = '';
+async function googleBooks(isbn){
+  const [obR, gbR] = await Promise.all([wrap_(openBd_, isbn), wrap_(googleBooks_, isbn)]);
+  lastLookupDiag = 'openBD: ' + obR.status + ' / Google Books: ' + gbR.status;
+  const ob = obR.data, gb = gbR.data;
+  if(!ob && !gb) return null;
+  const pick = k => (ob?.[k]) || (gb?.[k]) || '';
+  const info = { title:pick('title'), authors:pick('authors'), publisher:pick('publisher'),
+           year:pick('year'), cover:pick('cover'),
+           source:[ob&&'openBD', gb&&'Google Books'].filter(Boolean).join(' + ') };
+  // カバーが無ければ国立国会図書館の書影を試す
+  if(!info.cover){
+    const ndl = 'https://ndlsearch.ndl.go.jp/thumbnail/' + isbn + '.jpg';
+    if(await imgExists_(ndl)){ info.cover = ndl; info.source += ' + NDL書影'; }
+  }
+  return info;
+}
+function imgExists_(url){
+  return new Promise(res=>{
+    const im = new Image();
+    const done = ok => res(ok);
+    im.onload = ()=>done(im.naturalWidth > 1);
+    im.onerror = ()=>done(false);
+    setTimeout(()=>done(false), 4000);
+    im.src = url;
+  });
+}
+async function wrap_(fn, isbn){
+  try{
+    const data = await fn(isbn);
+    return data ? { data, status:'取得成功' } : { data:null, status:'該当なし' };
+  }catch(e){
+    return { data:null, status:'通信エラー(' + (e && e.message ? e.message : e) + ')' };
+  }
+}
+async function openBd_(isbn){
+    const r = await fetch('https://api.openbd.jp/v1/get?isbn='+encodeURIComponent(isbn));
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j = await r.json();
+    const d = j?.[0];
+    if(!d) return null;
+    const s = d.summary || {};
+    // 出版年: summary.pubdate は "YYYYMMDD" or "YYYY-MM"
+    const year = String(s.pubdate||'').replace(/\D/g,'').slice(0,4);
+    return {
+      title: [s.title, s.volume].filter(Boolean).join(' '),
+      authors: (s.author||'').replace(/／(著|作|訳|編|監修|絵|画|文)/g,'').replace(/\s+/g,' ').trim(),
+      publisher: s.publisher || '',
+      year,
+      cover: (s.cover||'').replace(/^http:/,'https:')
+    };
+}
+async function googleBooks_(isbn){
+    const r = await fetch('https://www.googleapis.com/books/v1/volumes?q=isbn:'+encodeURIComponent(isbn)+'&country=JP');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j = await r.json();
+    const v = j.items?.[0]?.volumeInfo;
+    if(!v) return null;
+    return {
+      title: v.title || '',
+      authors: (v.authors||[]).join(', '),
+      publisher: v.publisher || '',
+      year: (v.publishedDate||'').slice(0,4),
+      cover: (v.imageLinks?.thumbnail || v.imageLinks?.smallThumbnail || '').replace(/^http:/,'https:')
+    };
+}
+
+async function saveBookForm(id){
+  const title = $('#bTitle').value.trim();
+  if(!title){ toast('題名は必須です'); return; }
+  const shelfId = $('#pShelf').value;
+  const book = {
+    id: id || uid('bk'),
+    isbn: $('#bIsbn').value.trim(),
+    title,
+    authors: $('#bAuthors').value.trim(),
+    publisher: $('#bPub').value.trim(),
+    publishedYear: $('#bYear').value.trim(),
+    coverUrl: $('#bCover').value.trim(),
+    tags: $('#bTags').value.split(',').map(t=>t.trim()).filter(Boolean).join(','),
+    memo: $('#bMemo').value.trim(),
+    shelfId,
+    rowIndex: shelfId ? $('#pRow').value : '',
+    layer: shelfId ? $('#pLayer').value : '',
+    slot: shelfId ? $('#pSlot').value : ''
+  };
+  closeModal();
+  await mutate('saveBook', book, '本を保存しました');
+}
+window.saveBookForm = saveBookForm;
+
+/* ================= QRコード ================= */
+function showQr(id){
+  const b = state.books.find(x=>x.id===id);
+  closeModal();
+  modal('QRコード', `
+    <p class="sub">このQRコードを印刷して本に貼ると、「追加」タブのカメラで読み取って本の情報をすぐ開けます。</p>
+    <div id="qrBox" style="display:flex;justify-content:center;margin:16px 0"></div>
+    <div style="text-align:center;margin-bottom:12px"><b>${esc(b.title)}</b><br><span class="sub">${esc(b.id)}</span></div>
+    <button class="btn" onclick="printQr('${b.id}')">🖨 印刷する</button>`);
+  new QRCode($('#qrBox'), { text: b.id, width: 180, height: 180 });
+}
+window.showQr = showQr;
+
+function printQr(id){
+  const b = state.books.find(x=>x.id===id);
+  const img = $('#qrBox img') || $('#qrBox canvas');
+  const src = img.tagName==='IMG' ? img.src : img.toDataURL();
+  $('#printArea').innerHTML = `<div class="qrLabel"><img src="${src}" style="width:30mm;height:30mm"><div class="t">${esc(b.title)}<br>${esc(b.id)}</div></div>`;
+  window.print();
+}
+window.printQr = printQr;
+
+/* ================= スキャン ================= */
+let scanner = null;
+function viewScan(){
+  return `<h1 class="appTitle display">本を追加(スキャン)</h1>
+    <p class="sub">本の裏表紙のISBNバーコード(EAN-13)、またはアプリで発行したQRコードをカメラにかざしてください。</p>
+    <div id="reader"></div>
+    <div id="scanMsg" class="sub" style="text-align:center;margin-top:10px"></div>
+    <hr class="sep">
+    <button class="btn ghost" onclick="openBookForm()">カメラを使わず手動で登録</button>`;
+}
+async function startScanner(){
+  await stopScanner();
+  if(!window.Html5Qrcode){ $('#scanMsg').textContent='スキャンライブラリの読み込みに失敗しました'; return; }
+  try{
+    scanner = new Html5Qrcode('reader', { formatsToSupport: [Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.QR_CODE] });
+    await scanner.start({ facingMode:'environment' }, { fps:10, qrbox:{width:240,height:150} }, onScan, ()=>{});
+    $('#scanMsg').textContent = 'カメラ起動中…バーコードをかざしてください';
+  }catch(e){
+    $('#scanMsg').textContent = 'カメラを起動できませんでした。ブラウザのカメラ許可を確認してください(HTTPSでのアクセスが必要です)。';
+  }
+}
+async function stopScanner(){
+  if(scanner){ try{ await scanner.stop(); scanner.clear(); }catch(e){} scanner=null; }
+}
+let scanBusy = false;
+async function onScan(text){
+  if(scanBusy) return;
+  scanBusy = true;
+  try{
+    if(/^bk_/.test(text)){
+      const b = state.books.find(x=>x.id===text);
+      if(b){ toast('登録済みの本を開きます'); await stopScanner(); openBookDetail(b.id); }
+      else toast('このQRに対応する本が見つかりません');
+      return;
+    }
+    const isbn = text.replace(/\D/g,'');
+    if(isbn.length===13 && (isbn.startsWith('978')||isbn.startsWith('979'))){
+      const dup = state.books.find(b=>String(b.isbn)===isbn);
+      await stopScanner();
+      if(dup && !confirm('同じISBNの本が登録済みです。もう1冊登録しますか?')){ openBookDetail(dup.id); return; }
+      toast('ISBN読み取り: '+isbn+' 書誌情報を取得中…');
+      const info = await googleBooks(isbn);
+      openBookForm(null, { book: {
+        isbn, title: info?.title||'', authors: info?.authors||'', publisher: info?.publisher||'',
+        publishedYear: info?.year||'', coverUrl: info?.cover||''
+      }});
+      if(!info) toast('見つかりませんでした: ' + lastLookupDiag);
+    } else if(isbn.startsWith('192')){
+      $('#scanMsg').textContent = '価格用の2段目バーコードです。上段(978から始まる方)を読み取ってください。';
+    }
+  } finally {
+    setTimeout(()=>{ scanBusy=false; }, 1500);
+  }
+}
+
+/* ================= 履歴 ================= */
+function viewHistory(){
+  const items = state.history.length ? state.history.map(h=>{
+    const t = new Date(h.timestamp);
+    const time = isNaN(t) ? '' : `${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`;
+    const canRestore = !!h.snapshotJson;
+    return `<div class="card histItem">
+      <div><div><b>${esc(h.action)}</b> — ${esc(h.label)}</div><div class="sub">${time}</div></div>
+      ${canRestore?`<button class="btn small ghost" onclick="restoreHist('${h.historyId}')">復元</button>`:''}
+    </div>`;
+  }).join('') : `<div class="empty">操作履歴はまだありません</div>`;
+  return `<h1 class="appTitle display">操作履歴</h1>
+    <p class="sub">直近${30}件の操作を記録しています。「復元」でその操作の直前の状態に戻せます(削除した本・本棚の復活、編集の取り消し)。</p>${items}`;
+}
+async function restoreHist(id){
+  if(!confirm('この操作の直前の状態に復元しますか?')) return;
+  await mutate('restore', { historyId: id }, '復元しました');
+}
+window.restoreHist = restoreHist;
+
+/* ================= 設定 ================= */
+function viewSettings(){
+  return `<h1 class="appTitle display">設定</h1>
+    <div class="card">
+      <label class="f"><b>GAS ウェブアプリURL</b><input type="url" id="cfgUrl" value="${esc(cfg.url)}" placeholder="https://script.google.com/macros/s/.../exec"></label>
+      <label class="f"><b>秘密トークン</b><input type="text" id="cfgToken" value="${esc(cfg.token)}" placeholder="code.gs の API_TOKEN と同じ文字列"></label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" onclick="saveCfg()">保存して接続テスト</button>
+        <button class="btn ghost" onclick="loadAll()">データを再読み込み</button>
+      </div>
+    </div>
+    <p class="sub">アプリのバージョン: <b>v1.2</b>(書誌取得: openBD + Google Books + NDL書影 / 表紙のドライブ保存・写真アップロード対応)。設定画面にこの表示がない場合は古いファイルがキャッシュされています。</p>
+    <p class="sub">データはあなたのGoogleドライブ内のスプレッドシート「本棚管理アプリ データ」に保存されます。iPhone・iPad・PCそれぞれでこのページを開き、同じURLとトークンを設定すれば同じデータを利用できます。</p>`;
+}
+async function saveCfg(){
+  cfg.url = $('#cfgUrl').value.trim();
+  cfg.token = $('#cfgToken').value.trim();
+  loading(true);
+  try{ await api('ping'); toast('接続に成功しました'); await loadAll(true); nav('shelves'); }
+  catch(e){ toast('接続失敗: ' + e.message); }
+  finally{ loading(false); }
+}
+window.saveCfg = saveCfg;
+
+/* ================= モーダル ================= */
+function modal(title, bodyHtml){
+  $('#modalRoot').innerHTML = `<div class="modalBg" onclick="if(event.target===this)closeModal()">
+    <div class="modal"><div class="modalHead"><b class="display" style="font-size:16px">${esc(title)}</b>
+    <button class="x" onclick="closeModal()" aria-label="閉じる">✕</button></div>${bodyHtml}</div></div>`;
+}
+function closeModal(){ $('#modalRoot').innerHTML=''; }
+window.closeModal = closeModal;
+window.state = state;
+window.render = render;
+
+/* ================= 起動 ================= */
+(function init(){
+  if(!cfg.url || !cfg.token){ nav('settings'); toast('はじめに設定でGASのURLとトークンを入力してください'); }
+  else { nav('shelves'); loadAll(); }
+})();
+</script>
+</body>
+</html>
